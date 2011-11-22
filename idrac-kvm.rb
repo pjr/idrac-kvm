@@ -1,4 +1,6 @@
 #!/usr/bin/env ruby
+# From https://github.com/jasongill/idrac-kvm
+# Jason Gill <jasongill@gmail.com>
 
 # Get the required gems with:
 # sudo gem install rest-client net-ssh-gateway slop
@@ -12,97 +14,116 @@ def cyantext(string)
   puts "\033[0;36m -- " + string + "\033[0m"
 end
 
-opts = Slop.parse do
-  banner "Usage: #{$0} [options]"
-  on :h, :help, 'Print this help message', :tail => true do
-     puts help
-     exit
-   end
-  on :b, :bounce=, "Bounce server (required)"
-  on :l, :login=, "Your username on bounce server (optional; defaults to #{ENV['USER']})", :default => ENV['USER']
-  on :s, :server=, "Remote server IP (required)"
-  on :u, :user=, "Remote username (optional; defaults to root)", :default => "root"
-  on :p, :password=, "Remote password (required)"
+def redtext(string)
+  puts "\033[0;31m !! " + string + "\033[0m"
 end
 
-bounceServer = opts[:bounce]
-bounceUser = opts[:login]
-remoteIP = opts[:server]
-remoteUser = opts[:user]
-remotePassword = opts[:password]
+begin
+  opts = Slop.parse do
+    banner "Usage: #{$0} [options]"
+    on :h, :help, 'Print this help message', :tail => true do
+      puts help
+      exit
+    end
+    on :b, :bounce, "Bounce server (optional)", :required => false, :optional => false
+    on :l, :login, "Your username on bounce server (optional; defaults to #{ENV['USER']})", :default => ENV['USER'], :required => false, :optional => false
+    on :s, :server, "Remote server IP (required)", :required => true, :optional => false
+    on :u, :user, "Remote username (optional; defaults to root)", :default => "root", :required => false
+    on :p, :password, "Remote password (required)", :required => true, :optional => false
+  end
 
-raise "No bounce server specified. See #{$0} --help" unless bounceServer
-raise "No bounce user specified. See #{$0} --help" unless bounceUser
-raise "No remote IP specified. See #{$0} --help" unless remoteIP
-raise "No remote user specified. See #{$0} --help" unless remoteUser
-raise "No remote password See #{$0} --help" unless remotePassword
+  bounceServer = opts[:bounce]
+  bounceUser = opts[:login]
+  remoteIP = opts[:server]
+  remoteUser = opts[:user]
+  remotePassword = opts[:password]
 
-cyantext "Connecting to #{remoteIP} as #{remoteUser} with password #{remotePassword} via bounce server #{bounceUser}@#{bounceServer}"
+  serverPortHTTPS = 443
+  serverPortVNC = 5900
+  serverDomain = remoteIP
 
-forwardedURL = 'https://localhost:1443'
+  if RUBY_PLATFORM.downcase.include?("linux")
+    cyantext "Building Linux keycode hack"
+    keycodec = Tempfile.new('keycodehack.c')
+    keycodec.write(DATA.read)
+    keycodec.close
+    keycodeso = Tempfile.new('keycodehack.so')
+    keycodeso.close
+    system('gcc', "-o", keycodeso.path, "-xc", keycodec.path, "-shared", "-s", "-ldl", "-fPIC")
+    ENV['LD_PRELOAD'] = keycodeso.path
+  end
 
-if RUBY_PLATFORM.downcase.include?("linux")
-  cyantext "Building Linux keycode hack"
-  keycodec = Tempfile.new('keycodehack.c')
-  keycodec.write(DATA.read)
-  keycodec.close
-  keycodeso = Tempfile.new('keycodehack.so')
-  keycodeso.close
-  system('gcc', "-o", keycodeso.path, "-x c", keycodec.path, "-shared", "-s", "-ldl", "-fPIC")
-  ENV['LD_PRELOAD'] = keycodeso.path
-end
+  if bounceServer && bounceUser
+    serverPortHTTPS = 1443
+    serverPortVNC = 15900
+    serverDomain = "localhost"
+    cyantext "Creating SSH tunnel via #{bounceUser}@#{bounceServer} for ports 443 and 5900"
+    gateway = Net::SSH::Gateway.new(bounceServer, bounceUser)
+    gateway.open(remoteIP, 443, 1443)
+    gateway.open(remoteIP, 5900, 15900)
+  end
 
-cyantext "Creating SSH tunnel via #{bounceServer} for ports 443 and 5900"
-gateway = Net::SSH::Gateway.new(bounceServer, bounceUser)
-gateway.open(remoteIP, 443, 1443)
-gateway.open(remoteIP, 5900, 15900)
+  serverURL = "https://#{serverDomain}:#{serverPortHTTPS}"
 
-cyantext "Generating a session ID"
-loginsession = RestClient.post(
-  forwardedURL + '/data/login',
+  cyantext "Connecting to #{serverURL} and generating a session ID"
+  loginsession = RestClient.post(
+  serverURL + '/data/login',
   {:user => remoteUser, :password => remotePassword}
-)
-cookie = loginsession.cookies["_appwebSessionId_"].to_s
-raise "Can't login, is the DRAC server at it's limit for login sessions, and are you using the correct remote username and password?" if cookie.empty?
+  )
+  cookie = loginsession.cookies["_appwebSessionId_"].to_s
 
-cyantext "Logging in with session ID #{cookie}"
-redirectsession = RestClient.get(
-  forwardedURL + '/index.html',
+  cyantext "Logging in to #{serverURL} with session ID #{cookie}"
+  redirectsession = RestClient.get(
+  serverURL + '/index.html',
   {:cookies => {:_appwebSessionId_ => cookie}}
-)
+  )
 
-jnlpfile = Tempfile.new('idrac.jnlp')
-cyantext "Receiving KVM viewer JNLP file and writing to #{jnlpfile.path}"
-viewersession = RestClient.get(
-  forwardedURL + '/viewer.jnlp(localhost@0@' + remoteIP + '@' + Time.now.to_i.to_s + ')',
+  jnlpfile = Tempfile.new('idrac.jnlp')
+  cyantext "Receiving KVM viewer JNLP file and writing to #{jnlpfile.path}"
+  viewersession = RestClient.get(
+  serverURL + '/viewer.jnlp(localhost@0@' + remoteIP + '@' + Time.now.to_i.to_s + ')',
   {:cookies => {:_appwebSessionId_ => cookie}}
-)
+  )
 
-sessionfiledata = viewersession.to_s
-sessionfiledata.gsub!(/port=5900/, 'port=15900')
-sessionfiledata.gsub!(/localhost:443/, 'localhost:1443')
+  sessionfiledata = viewersession.to_s
+  sessionfiledata.gsub!(/port=5900/, "port=#{serverPortVNC}")
+  sessionfiledata.gsub!(/#{serverDomain}:443/, "#{serverDomain}:#{serverPortHTTPS}")
 
-jnlpfile.write(sessionfiledata)
-jnlpfile.close
+  jnlpfile.write(sessionfiledata)
+  jnlpfile.close
 
-cyantext "Starting Java viewer with tempfile #{jnlpfile.path}"
-system("javaws", "-wait", jnlpfile.path)
+  cyantext "Starting Java viewer with tempfile #{jnlpfile.path}"
+  system("javaws", "-wait", jnlpfile.path)
 
+rescue Errno::ECONNREFUSED => error
+  redtext "Error when attempting to open SSH tunnel: #{error.to_s}"
+  redtext "Did you verify that you are able to make a key-based connection to the bounce server?"
+  exit 2
 
-cyantext "Logging out of session #{cookie} to prevent future login errors"
-logout = RestClient.get(
-  forwardedURL + '/data/logout',
-  {:cookies => {:_appwebSessionId_ => cookie}}
-)
+rescue => error
+  redtext "Error: #{error.to_s}"
+  redtext "Try #{$0} --help for more information"
+  exit 1
 
-cyantext "Stopping SSH tunnel"
-gateway.shutdown!
+ensure
+  unless cookie.nil?
+    cyantext "Logging out of session #{cookie} to prevent future login errors"
+    RestClient.get(
+    serverURL + '/data/logout',
+    {:cookies => {:_appwebSessionId_ => cookie}}
+    )
+  end
 
+  unless gateway.nil?
+    cyantext "Stopping SSH tunnel connection via #{bounceServer}"
+    gateway.shutdown!
+  end
 
-cyantext "Removing tempfiles"
-keycodec.unlink if defined?(keycodec.path)
-keycodeso.unlink if defined?(keycodeso.path)
-jnlpfile.unlink
+  keycodec.unlink unless keycodec.nil?
+  keycodeso.unlink unless keycodeso.nil?
+  jnlpfile.unlink unless jnlpfile.nil?
+
+end
 
 __END__
 /*
