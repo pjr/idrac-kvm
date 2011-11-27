@@ -9,6 +9,18 @@ Requires the rest-client, net-ssh-gateway, and slop gems. Install with:
 sudo gem install rest-client net-ssh-gateway slop
 ```
 
+You will also need a working copy of javaws, and it has been reported that the non-Sun/Oracle copy of javaws
+included with some Linux distros don't work. You may want to test that you can actually get to the KVM viewer
+manually before using this script.
+
+Note that if you are running idrac-kvm.rb from a Linux machine, this script will automatically attempt to compile
+the iDRAC Keycode hack from https://github.com/pjr/keycode-idrac. This hack is required to make the arrow keys work.
+
+The script also tries to clean up after itself, even if the Java viewer crashes (which is often). The script will
+automatically send the logout command to the server and close your session out cleanly so that you do not get locked
+out of the iDRAC interface. If the logout command is not sent, you may find yourself getting an odd error when trying
+to connect again - not a very good situation if your server is offline.
+
 Usage
 -----
 
@@ -17,12 +29,12 @@ Usage: ./idrac-kvm.rb [options]
 
 options:
 
-    -b, --bounce        Bounce server (optional)
-    -l, --login         Your username on bounce server (optional; defaults to iota)
-    -s, --server        Remote server IP (required)
-    -u, --user          Remote username (optional; defaults to root)
-    -p, --password      Remote password (required)
-    -h, --help          Print this help message
+    --bounce        Bounce server (optional)
+    --login         Your username on bounce server (optional; defaults to iota)
+    --server        Remote server IP (required)
+    --user          Remote username (optional; defaults to root)
+    --password      Remote password (required)
+    --help          Print this help message
 ```
 
 Examples
