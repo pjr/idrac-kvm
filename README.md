@@ -21,6 +21,11 @@ automatically send the logout command to the server and close your session out c
 out of the iDRAC interface. If the logout command is not sent, you may find yourself getting an odd error when trying
 to connect again - not a very good situation if your server is offline.
 
+
+Note that this has only been tested against Dell iDRAC6 so far - if you have an older DRAC card that I can use for
+testing, please let me know (or submit a pull request with a patch)
+
+
 Usage
 -----
 
@@ -30,7 +35,7 @@ Usage: ./idrac-kvm.rb [options]
 options:
 
     --bounce        Bounce server (optional)
-    --login         Your username on bounce server (optional; defaults to iota)
+    --login         Your username on bounce server (optional; defaults to your username)
     --server        Remote server IP (required)
     --user          Remote username (optional; defaults to root)
     --password      Remote password (required)
