@@ -34,7 +34,7 @@ Usage: ./idrac-kvm.rb [options]
 
 options:
 
-    --bounce        Bounce server (optional)
+    --bounce        Bounce server (optional). Use host:port to change default port.
     --login         Your username on bounce server (optional; defaults to your username)
     --server        Remote server IP (required)
     --user          Remote username (optional; defaults to root)

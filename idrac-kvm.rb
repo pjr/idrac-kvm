@@ -32,7 +32,7 @@ begin
     on :p, :password, "Remote password (required)", :required => true, :optional => false
   end
 
-  bounceServer = opts[:bounce]
+  bounceServer, bouncePort = opts[:bounce].split(':')
   bounceUser = opts[:login]
   remoteIP = opts[:server]
   remoteUser = opts[:user]
@@ -57,8 +57,8 @@ begin
     serverPortHTTPS = 1443
     serverPortVNC = 15900
     serverDomain = "localhost"
-    cyantext "Creating SSH tunnel via #{bounceUser}@#{bounceServer} for ports 443 and 5900"
-    gateway = Net::SSH::Gateway.new(bounceServer, bounceUser)
+    cyantext "Creating SSH tunnel via #{bounceUser}@#{bounceServer}:#{bouncePort} for ports 443 and 5900"
+    gateway = Net::SSH::Gateway.new(bounceServer, bounceUser, :port => bouncePort)
     gateway.open(remoteIP, 443, 1443)
     gateway.open(remoteIP, 5900, 15900)
   end
